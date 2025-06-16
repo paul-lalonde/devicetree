@@ -10,6 +10,7 @@ struct fdt_header {
     uint32_t boot_cpuid_phys;
     uint32_t size_dt_strings;
     uint32_t size_dt_struct;
+    uint32_t tokens[];
 };
 
 struct fdt_reserve_entry {
@@ -26,7 +27,8 @@ enum {
 };
 
 
-struct fdt_header fdt_header = {1,0,0,0,0,0,0,0,0,0};
+//struct fdt_header fdt_header = {1,0,0,0,0,0,0,0,0,0};
+extern struct fdt_header fdt_header;
 
 extern void asm_print(int l, char *s);
 
@@ -352,6 +354,18 @@ printHex32(VPN(0x80200000, 1));
 		
 }
 
+void
+storefdt(struct fdt_header *fdt, uint32_t *base) {
+	if (fdt->totalsize > 0x2000) {
+		printString("ftd too large for storage copy\n"); // Should allocate dynamically, but we don't have mappings yet.  Double the size of this space (in hello.s) and recompile.
+		return;
+	}
+	for(int i=sizeof(fdt_header)/4; i < fdt->totalsize/4; i++) {
+		fdt->tokens[i-sizeof(fdt_header)/4] = base[i];
+	}
+}
+
+
 extern uint64_t pt[];
 
 void 
@@ -364,7 +378,10 @@ pre_main(uint32_t *addr) {
 	hexdump(addr, fdt_header.totalsize);
 	printFdt(&fdt_header, (char*)addr);
 	printString("\n");
-	descendfdtstructure(&fdt_header, (char*)addr);
+	storefdt(&fdt_header, addr);
+	/* descendfdtstructure(&fdt_header, (char*)addr); */
+	/* We now have our table of memory reservations */
+	/* We'll later inject that into our memory reservation table */
 /*	mkpagetab0(pt);
 	extern void mmuenable();
 	mmuenable();
@@ -373,5 +390,6 @@ pre_main(uint32_t *addr) {
 
 void
 main() {
-	printString("MMU Initialized\n");
+	printString("MMU Initialized - in mmu-mediated main().\n");
+	descendfdtstructure(&fdt_header, (char*)&fdt_header);
 }

@@ -93,3 +93,8 @@ pt:
 	.dword 0 
 	.dword 0x200800cf
 	.fill 510, 8, 0
+
+.global fdt_header
+
+fdt_header:
+	.fill 0x2000, 1, 0
