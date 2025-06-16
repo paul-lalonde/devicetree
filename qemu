@@ -1,0 +1,2 @@
+#!/bin/bash
+qemu-system-riscv64 -machine virt -s -S -monitor tcp:127.0.0.1:55556,server,nowait -kernel kern -nographic -bios fw_dynamic.bin
