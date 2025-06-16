@@ -37,6 +37,17 @@ mstrlen(char *s) {
 		n++;
 	return n;
 }
+
+int
+mstrcmp(char *l, char *r) {
+   while(*l && (*l == *r))
+    {
+        l++;
+        r++;
+    }
+    return *l - *r;
+}
+
 void
 printString(char *s) {
 	asm_print(mstrlen(s),s);
@@ -137,10 +148,9 @@ printFdt(struct fdt_header *fdt, char *base) {
 	for(uint32_t *tok = st_begin; tok < st_end; tok++) {
 		switch(betole(*tok)) {
 		case FDT_BEGIN_NODE: 
-			tok++;
-			int n = mstrlen((char*)tok);
+			int n = mstrlen((char*)(tok+1));
 			indent(depth);
-			printString((char*)tok);
+			printString((char*)(tok+1));
 			printString("{\n"); 
 			tok += (n+3)/4;
 			depth++;
@@ -171,7 +181,127 @@ printFdt(struct fdt_header *fdt, char *base) {
 			break;
 		}
 	}
-	
+}
+
+struct reservation {
+	void *addr;
+	uintptr_t len;
+} mem[16];
+int nreservations= 0;
+
+int
+parsermprop(uint32_t *st_begin, char *strtab, int depth) {
+	for(uint32_t *tok = st_begin; ; tok++) {
+		switch(betole(*tok)) {
+/* Better not be any sub-nodes, according to spec.
+		case FDT_BEGIN_NODE: 
+			int n = mstrlen((char*)(tok+1));
+			tok += (n+3)/4;
+			tok += parsermprop(++tok, strtab, depth +1)
+			break;
+*/
+		case FDT_END_NODE:
+			return tok-st_begin;
+			break;
+		case FDT_PROP:
+			uint32_t len = betole(tok[1]);
+			uint32_t s = betole(tok[2]);
+			if (mstrcmp(strtab + s, "reg") == 0) {
+				uintptr_t p;
+				p  = ((uint64_t)(betole(tok[0+3])) << 32) | (uint64_t)betole(tok[1+3]);
+				mem[nreservations].addr = (void *)p;
+				p  = ((uint64_t)(betole(tok[2+3])) << 32) | (uint64_t)betole(tok[3+3]);
+				mem[nreservations].len = p;
+			} else if (mstrcmp(strtab + s, "no-map") == 0) {
+				// Only commit the reservation if it's there
+				printString("Committing reservation addr=0x");
+				printHex64( (uint64_t)mem[nreservations].addr);
+				printString(" len=0x");
+				printHex64( mem[nreservations].len);
+				printString("\n");
+				nreservations++;
+				if (nreservations > sizeof(mem)/sizeof(mem[0])) {
+					printString("OVERFLOW ON MEMORY RESERVATIONS\n");
+				}
+			} else if (mstrcmp(strtab + s, "size") == 0) {
+					printString("IGNORING DYNAMIC ALLOC MEMORY RESERVATION\n");
+			}
+			tok += 2;
+			tok += (len+3)/4;
+			break;
+		case FDT_NOP:
+			break;
+		case FDT_END:
+			return tok-st_begin;
+		}
+	}
+}
+
+int
+parsereservedmemory(uint32_t *st_begin, char *strtab, int depth) {
+	for(uint32_t *tok = st_begin; ; tok++) {
+		switch(betole(*tok)) {
+		case FDT_BEGIN_NODE: 
+			int n = mstrlen((char*)(tok+1));
+			tok += (n+3)/4;
+			tok += parsermprop(++tok, strtab, depth +1);
+			break;
+		case FDT_END_NODE:
+			return tok-st_begin;
+			break;
+		case FDT_PROP:
+			uint32_t len = betole(tok[1]);
+			uint32_t s = betole(tok[2]);
+			tok += 2;
+			tok += (len+3)/4;
+			break;
+		case FDT_NOP:
+			break;
+		case FDT_END:
+			return tok-st_begin;
+		}
+	}
+}
+
+int
+recurse(uint32_t *st_begin, char *strtab, int depth) {
+	for(uint32_t *tok = st_begin; ; tok++) {
+		switch(betole(*tok)) {
+		case FDT_BEGIN_NODE: {
+			char *s = (char*)(tok+1);
+			int n = mstrlen(s);
+			tok += (n+3)/4;
+			if (mstrcmp(s, "reserved-memory")==0) {
+				// Specialize the recursion 
+				tok += parsereservedmemory(++tok, strtab, depth +1);
+			} else {
+				tok += recurse(++tok, strtab, depth +1);
+			}
+			break;
+			}
+		case FDT_END_NODE:
+			return tok-st_begin;
+			break;
+		case FDT_PROP: {
+			uint32_t len = betole(tok[1]);
+			uint32_t s = betole(tok[2]);
+			tok += 2;
+			tok += (len+3)/4;
+			break;
+			}
+		case FDT_NOP:
+			break;
+		case FDT_END:
+			return tok-st_begin;
+		}
+	}
+}
+
+void descendfdtstructure(struct fdt_header *fdt, char *base) {
+	int depth = 0;
+	uint32_t *st_begin = (uint32_t *)(base + fdt->off_dt_struct);
+
+	recurse(st_begin, base+fdt->off_dt_strings, 0);
 }
 
 void hexdump(uint32_t *a, int len) {
@@ -234,7 +364,7 @@ pre_main(uint32_t *addr) {
 	hexdump(addr, fdt_header.totalsize);
 	printFdt(&fdt_header, (char*)addr);
 	printString("\n");
-
+	descendfdtstructure(&fdt_header, (char*)addr);
 /*	mkpagetab0(pt);
 	extern void mmuenable();
 	mmuenable();
