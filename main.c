@@ -156,7 +156,7 @@ pre_main(uint32_t *addr) {
 	printstring("\n");
 	printstring("Parsing header\n");
 	parsefdtheader(addr, &fdt_header);
-	hexdump(addr, fdt_header.totalsize);
+	//hexdump(addr, fdt_header.totalsize);
 	printFdt(&fdt_header, (char*)addr);
 	printstring("\n");
 	storefdt(&fdt_header, addr);
