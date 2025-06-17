@@ -1,5 +1,6 @@
 typedef struct Fdtheader Fdtheader;
 typedef struct Fdtmemreservation Fdtmemreservation;
+typedef struct Fdtparserstate Fdtparserstate;
 
 struct Fdtheader
 {
@@ -22,6 +23,16 @@ struct Fdtmemreservation
     uint64_t size;
 };
 
+typedef void (*fdtpropcb)(Fdtparserstate*, char *prop, int datalen, char *data);
+
+struct Fdtparserstate
+{
+	char *stack[16]; // Position of last separator
+	int stacksize;
+	char path[1024];
+	fdtpropcb onprop;
+};
+
 enum {
 	FDT_BEGIN_NODE = 1,
 	FDT_END_NODE =2,
@@ -31,6 +42,5 @@ enum {
 };
 
 uint32_t betole32(uint32_t v);
-Fdtheader *parsefdtheader(uint32_t *addr, Fdtheader *dest);
-void printFdt(Fdtheader *fdt, char *base);
-int descendfdtstructure(Fdtheader *fdt, char *base);
+void printfdt(char *base);
+int parsefdt(char *fdt, fdtpropcb onprop);

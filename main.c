@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include "devtree.h"
 
-extern Fdtheader fdt_header;
+extern char fdt_header[0x2000];
 
 static uint32_t
 mstrlen(char *s) {
@@ -46,6 +46,10 @@ struct sbiret sbiecall(int ext, int fid, unsigned long arg0,
         ret.value = a1;
 
         return ret;
+}
+
+uint32_t beget4(char *s) {
+	return ((uint32_t)(s[0]) << 24) | ((uint32_t)(s[1]) << 16) | ((uint32_t)(s[2]) << 8) | (uint32_t)s[0];
 }
 
 uint32_t betole32(uint32_t v) {
@@ -136,13 +140,15 @@ printhex32(VPN(0x80200000, 1));
 }
 
 void
-storefdt(Fdtheader *fdt, uint32_t *base) {
-	if (fdt->totalsize > 0x2000) {
+storefdt(char *dest, char *base) {
+	Fdtheader *fdt = (Fdtheader *)base;
+	uint32_t size = betole32(fdt->totalsize);
+	if (size > 0x2000) {
 		printstring("ftd too large for storage copy\n"); // Should allocate dynamically, but we don't have mappings yet.  Double the size of this space (in hello.s) and recompile.
 		return;
 	}
-	for(int i=sizeof(fdt_header)/4; i < fdt->totalsize/4; i++) {
-		fdt->tokens[i-sizeof(fdt_header)/4] = base[i];
+	for(int i=0; i < size; i++) {
+		dest[i] = base[i];
 	}
 }
 
@@ -150,16 +156,13 @@ storefdt(Fdtheader *fdt, uint32_t *base) {
 extern uint64_t pt[];
 
 void 
-pre_main(uint32_t *addr) {
+pre_main(char *addr) {
 
 	printhex32(0xDEADF00D);
 	printstring("\n");
-	printstring("Parsing header\n");
-	parsefdtheader(addr, &fdt_header);
 	//hexdump(addr, fdt_header.totalsize);
-	printFdt(&fdt_header, (char*)addr);
-	printstring("\n");
-	storefdt(&fdt_header, addr);
+	storefdt(fdt_header, addr);
+	printfdt(fdt_header);
 	/* descendfdtstructure(&fdt_header, (char*)addr); */
 	/* We now have our table of memory reservations */
 	/* We'll later inject that into our memory reservation table */
@@ -169,8 +172,53 @@ pre_main(uint32_t *addr) {
 	printstring("MMU Initialized\n");
 */}
 
+static int
+strhasprefix(char *s, char *prefix) {
+   while(*s && (*s == *prefix))
+    {
+        s++;
+        prefix++;
+    }
+    return *prefix == 0;
+}
+
+Fdtmemreservation mem[16];
+int nreservations= 0;
+
+void
+onfdtprop(Fdtparserstate *parserstate, char *prop, int datalen, char *data){
+	if (parserstate->stacksize >= 2
+		&& strhasprefix(parserstate->stack[1], "reserved-memory")
+		&& strhasprefix(parserstate->stack[2], "mmode")) {
+		if (mstrcmp(prop, "reg") == 0) {
+			uintptr_t p;
+			p  = ((uint64_t)(beget4(data)) << 32) | (uint64_t)beget4(data+4);
+			mem[nreservations].addr = p;
+			p  = ((uint64_t)(beget4(data+8)) << 32) | (uint64_t)beget4(data+12);
+			mem[nreservations].size = p;
+		} else if (mstrcmp(prop, "no-map") == 0) {
+			// Only commit the reservation if it's there
+			printstring("Committing reservation ");
+			printstring(parserstate->path);
+			printstring(" at addr=0x");
+			printhex64( (uint64_t)mem[nreservations].addr);
+			printstring(" len=0x");
+			printhex64( mem[nreservations].size);
+			printstring("\n");
+			nreservations++;
+			if (nreservations > sizeof(mem)/sizeof(mem[0])) {
+				printstring("OVERFLOW ON MEMORY RESERVATIONS\n");
+			}
+		} else if (mstrcmp(prop, "size") == 0) {
+			printstring("IGNORING DYNAMIC ALLOC MEMORY RESERVATION\n");
+		}
+	}
+}
+
 void
 main() {
 	printstring("MMU Initialized - in mmu-mediated main().\n");
-	descendfdtstructure(&fdt_header, (char*)&fdt_header);
+
+	nreservations = 0;
+	parsefdt((char*)&fdt_header, onfdtprop);
 }
