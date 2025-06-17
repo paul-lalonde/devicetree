@@ -139,19 +139,6 @@ printhex32(VPN(0x80200000, 1));
 		
 }
 
-void
-storefdt(char *dest, char *base) {
-	Fdtheader *fdt = (Fdtheader *)base;
-	uint32_t size = betole32(fdt->totalsize);
-	if (size > 0x2000) {
-		printstring("ftd too large for storage copy\n"); // Should allocate dynamically, but we don't have mappings yet.  Double the size of this space (in hello.s) and recompile.
-		return;
-	}
-	for(int i=0; i < size; i++) {
-		dest[i] = base[i];
-	}
-}
-
 
 extern uint64_t pt[];
 
@@ -182,7 +169,12 @@ strhasprefix(char *s, char *prefix) {
     return *prefix == 0;
 }
 
-Fdtmemreservation mem[16];
+struct Fmemreservation
+{
+    uintptr_t addr;
+    uint64_t size;
+} mem[16];
+
 int nreservations= 0;
 
 void

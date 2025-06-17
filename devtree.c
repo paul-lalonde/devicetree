@@ -2,6 +2,50 @@
 #include "devtree.h"
 #include "debug.h"
 
+
+struct Fdtheader
+{
+    uint32_t magic;
+    uint32_t totalsize;
+    uint32_t off_dt_struct;
+    uint32_t off_dt_strings;
+    uint32_t off_mem_rsvmap;
+    uint32_t version;
+    uint32_t last_comp_version;
+    uint32_t boot_cpuid_phys;
+    uint32_t size_dt_strings;
+    uint32_t size_dt_struct;
+    uint32_t tokens[];
+};
+
+struct Fdtmemreservation
+{
+    uintptr_t addr;
+    uint64_t size;
+};
+
+
+enum {
+	FDT_BEGIN_NODE = 1,
+	FDT_END_NODE =2,
+	FDT_PROP = 3,
+	FDT_NOP = 4,
+	FDT_END = 9,
+};
+
+void
+storefdt(char *dest, char *base) {
+	Fdtheader *fdt = (Fdtheader *)base;
+	uint32_t size = betole32(fdt->totalsize);
+	if (size > 0x2000) {
+		printstring("ftd too large for storage copy\n"); // Should allocate dynamically, but we don't have mappings yet.  Double the size of this space (in hello.s) and recompile.
+		return;
+	}
+	for(int i=0; i < size; i++) {
+		dest[i] = base[i];
+	}
+}
+
 static uint32_t
 mstrlen(char *s) {
 	int n = 0;
