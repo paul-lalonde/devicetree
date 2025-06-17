@@ -7,8 +7,11 @@ SECTIONS {
    hello.o(.text*l)
    hello.o(.rodata*)
    hello.o(.data*)
-   dt.o(.text*l)
-   dt.o(.rodata*)
-   dt.o(.data*)
- } > boot_space
+   devtree.o(.text*l)
+   devtree.o(.rodata*)
+   devtree.o(.data*)
+   main.o(.text*l)
+   main.o(.rodata*)
+   main.o(.data*)
+} > boot_space
  }
