@@ -49,7 +49,7 @@ struct sbiret sbiecall(int ext, int fid, unsigned long arg0,
 }
 
 uint32_t beget4(char *s) {
-	return ((uint32_t)(s[0]) << 24) | ((uint32_t)(s[1]) << 16) | ((uint32_t)(s[2]) << 8) | (uint32_t)s[0];
+	return ((uint32_t)(s[0]) << 24) | ((uint32_t)(s[1]) << 16) | ((uint32_t)(s[2]) << 8) | (uint32_t)s[3];
 }
 
 uint32_t betole32(uint32_t v) {
@@ -169,40 +169,46 @@ strhasprefix(char *s, char *prefix) {
     return *prefix == 0;
 }
 
-struct Fmemreservation
+static char *
+mstrcpy(char *d, char *s) {
+	while(*s) {
+		*d++ = *s++;
+	}
+	*d = 0;
+	return d;
+}
+
+struct memreservation
 {
     uintptr_t addr;
     uint64_t size;
+    char name[64];
 } mem[16];
 
 int nreservations= 0;
 
 void
-onfdtprop(Fdtparserstate *parserstate, char *prop, int datalen, char *data){
-	if (parserstate->stacksize >= 2
-		&& strhasprefix(parserstate->stack[1], "reserved-memory")
-		&& strhasprefix(parserstate->stack[2], "mmode")) {
-		if (mstrcmp(prop, "reg") == 0) {
-			uintptr_t p;
-			p  = ((uint64_t)(beget4(data)) << 32) | (uint64_t)beget4(data+4);
+onfdtprop(Fdtparserstate *ps){
+	uint64_t p;
+	Fdtprop *reg;
+
+	if(ps->stacksize >= 2
+		&& strhasprefix(ps->stack[1], "reserved-memory")
+		&& strhasprefix(ps->stack[2], "mmode")) {
+		if ((reg = fdtfindprop(ps, 2, "reg")) && fdtfindprop(ps, 2, "no-map")){
+			// TODO(PAL): Don't assume the sizes here - 
+			//  	look up the parent #address-cells and  and #size-cells
+			p  = ((uint64_t)(beget4(reg->value)) << 32) | (uint64_t)beget4(reg->value+4);
 			mem[nreservations].addr = p;
-			p  = ((uint64_t)(beget4(data+8)) << 32) | (uint64_t)beget4(data+12);
+			p  = ((uint64_t)(beget4(reg->value+8)) << 32) | (uint64_t)beget4(reg->value+12);
 			mem[nreservations].size = p;
-		} else if (mstrcmp(prop, "no-map") == 0) {
-			// Only commit the reservation if it's there
-			printstring("Committing reservation ");
-			printstring(parserstate->path);
-			printstring(" at addr=0x");
-			printhex64( (uint64_t)mem[nreservations].addr);
-			printstring(" len=0x");
-			printhex64( mem[nreservations].size);
-			printstring("\n");
+			mstrcpy(mem[nreservations].name, ps->stack[2]);
 			nreservations++;
 			if (nreservations > sizeof(mem)/sizeof(mem[0])) {
 				printstring("OVERFLOW ON MEMORY RESERVATIONS\n");
 			}
-		} else if (mstrcmp(prop, "size") == 0) {
-			printstring("IGNORING DYNAMIC ALLOC MEMORY RESERVATION\n");
+		} else if (fdtfindprop(ps, 2, "size") != 0) {
+			printstring("IGNORING DYNAMIC ALLOC MEMORY RESERVATION\n"); 
 		}
 	}
 }
@@ -213,4 +219,13 @@ main() {
 
 	nreservations = 0;
 	parsefdt((char*)&fdt_header, onfdtprop);
+
+	for(int i=0; i < nreservations; i++){
+		printstring(mem[i].name);
+		printstring(":");
+		printhex64(mem[i].addr);
+		printstring(":");
+		printhex64(mem[i].size);
+		printstring("\n");
+	}
 }

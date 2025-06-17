@@ -151,31 +151,61 @@ printfdt(char *base) {
 	}
 }
 
+void
+fail(char *s){
+	printstring(s);
+	for(;;)
+		;
+}
+
+Fdtprop *
+fdtfindprop(Fdtparserstate *ps, int level, char *name){
+	int i;
+	for(i=0; i < ps->nprops[level]; i++){
+		if(mstrcmp(name, ps->props[level][i].name) == 0)
+			return &ps->props[level][i];
+	}
+	return 0;		
+}
+
 static int
-recurse(uint32_t *st_begin, char *strtab, Fdtparserstate *parserstate) {
+recurse(uint32_t *st_begin, char *strtab, Fdtparserstate *ps) {
 	for(uint32_t *tok = st_begin; ; tok++) {
 		switch(betole32(*tok)) {
 		case FDT_BEGIN_NODE: {
 			char *name = (char*)(tok+1);
 			int n = mstrlen(name);
 			tok += (n+3)/4;
-			parserstate->stack[parserstate->stacksize+1] = 
-				mstrcpy(parserstate->stack[parserstate->stacksize], name);
-			parserstate->stacksize++;
-			parserstate->stack[parserstate->stacksize][0] = '/';
-			parserstate->stack[parserstate->stacksize][1] = 0;
-			parserstate->stack[parserstate->stacksize]++;
-			tok += recurse(++tok, strtab, parserstate);
+			ps->stack[ps->stacksize+1] = 
+				mstrcpy(ps->stack[ps->stacksize], name);
+			ps->stacksize++;
+			if(ps->stacksize >= FDTMAXDEPTH){
+				fail("FDTMAXDEPTH exceeded\n");
+			}
+			ps->stack[ps->stacksize][0] = '/';
+			ps->stack[ps->stacksize][1] = 0;
+			ps->stack[ps->stacksize]++;
+			ps->nprops[ps->stacksize]=0;
+			tok += recurse(++tok, strtab, ps);
 			break;
 			}
 		case FDT_END_NODE:
-			parserstate->stack[--parserstate->stacksize][0] = 0;
+			ps->onprop(ps);
+			ps->stack[--ps->stacksize][0] = 0;
+			ps->nprops[ps->stacksize] = 0;
 			return tok-st_begin;
 			break;
 		case FDT_PROP: {
 			uint32_t len = betole32(tok[1]);
 			uint32_t s = betole32(tok[2]);
-			parserstate->onprop(parserstate, strtab+s, len, (char*)(tok+3));
+			int pidx = ps->stacksize - 1;
+			ps->props[pidx][ps->nprops[pidx]].name = strtab + s;
+			ps->props[pidx][ps->nprops[pidx]].len = len;
+			ps->props[pidx][ps->nprops[pidx]].value = (char *)(tok+3);
+			ps->nprops[pidx]++;
+			if(ps->nprops[pidx] >= FDTMAXPROPS){
+				fail("FDTMAXPROPS exceeded\n");
+			}
 			tok += 2;
 			tok += (len+3)/4;
 			break;
@@ -196,14 +226,14 @@ parsefdt(char *base, fdtpropcb onprop){
 	int depth = 0;
 	uint32_t *st_begin = (uint32_t *)(base + fdt.off_dt_struct);
 
-	Fdtparserstate parserstate;
+	Fdtparserstate ps;
 
-	parserstate.stacksize = 0;
-	parserstate.stack[0] = parserstate.path;
-	parserstate.path[0] = 0;
-	parserstate.onprop = onprop;
+	ps.stacksize = 0;
+	ps.stack[0] = ps.path;
+	ps.path[0] = 0;
+	ps.onprop = onprop;
 
-	int ntok = recurse(st_begin, base+fdt.off_dt_strings, &parserstate);
+	int ntok = recurse(st_begin, base+fdt.off_dt_strings, &ps);
 	if(ntok != fdt.size_dt_struct/4)
 		return -1;
 	return 0;
